@@ -42,6 +42,27 @@ async function initSDK() {
   });
 }
 
+async function syncAPI(params) {
+  const response = await rcsdk.platform().get('/restapi/v1.0/account/~/extension/~/message-sync', params);
+  const { records, syncInfo } = response.json();
+  if (!syncInfo.olderRecordsExist || records.length === 0) {
+    return { records, syncInfo };
+  }
+  const oldestCreationTime = (new Date(records[records.length - 1].creationTime)).toISOString();
+  const {
+    recordCount,
+    ...paramsWithoutRecordCount
+  } = params;
+  const oldData = await syncAPI({
+    ...paramsWithoutRecordCount,
+    dateTo: oldestCreationTime
+  });
+  return {
+    records: records.concat(oldData.records),
+    syncInfo,
+  }
+}
+
 async function syncMessages() {
   let syncInfo;
   if (fs.existsSync(syncInfoFilePath)) {
@@ -63,8 +84,7 @@ async function syncMessages() {
     };
   }
   try {
-    const response = await rcsdk.platform().get('/restapi/v1.0/account/~/extension/~/message-sync', syncParams);
-    const newData = response.json();
+    const newData = await syncAPI(syncParams);
     syncInfo = newData.syncInfo;
     fs.writeFileSync(syncInfoFilePath, JSON.stringify(syncInfo, null, 2));
     let messages = [];
